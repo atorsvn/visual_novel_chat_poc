@@ -257,7 +257,6 @@ async def vn_about_ok_callback(interaction):
 
 VN_CONFIG = {
     "prefix" : "!",
-    "token" : "ODQ1NDIxMzEwNDQwMTEyMjA4.YKgt8w.yx_ZtzmWyIg9CWTuDRt991OuSHU",
     "last-interaction" : 0,
     "state" : 0,
     "menu" : [
@@ -446,5 +445,5 @@ async def gwen(ctx):
     await vn_render_waifu_chat()
     await ctx.send(file=discord.File(r'output/screen.jpg'), view=VN_CONFIG['view'][VN_CONFIG['state']])
 
-bot.run(VN_CONFIG['token'])
+bot.run(WAIFU_CONFIG['token'])
 
