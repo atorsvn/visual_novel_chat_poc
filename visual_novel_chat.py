@@ -284,7 +284,6 @@ VN_CONFIG = {
     "waifu-stats" : "",
     "waifu-position" : CONST_POSITION['center'],
     "current-location" : "bridge",
-    "layer-flags" : [True, False, False, False, True],
     "view" : 0,
     "views" : 
         [
