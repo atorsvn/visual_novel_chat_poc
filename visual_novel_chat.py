@@ -278,13 +278,6 @@ VN_CONFIG = {
         vn_render_about,
         vn_render_quit,
     ],
-    "layers" : [
-        "backgrounds/kitchen.png", 
-        "sprites/normal.png", 
-        "ui_elements/status.png", 
-        "ui_elements/chat.png", 
-        "work/layer_4.png"
-    ],
     "waifu-mood" : "Normal",
     "waifu-chat" : "Hello!",
     "waifu-name" : "",
@@ -438,7 +431,7 @@ async def vnc_start(ctx):
 @bot.command()
 async def gwen(ctx):
     VN_CONFIG['state'] = 0
-    query = re.sub("!vn_chat" + " ", '', ctx.message.content)
+    query = re.sub("!gwen" + " ", '', ctx.message.content)
     response = waifu_ai_query(query, ctx.message.author.id, ctx.message.author.name)
     emotions = emo.get_emotion(response)
     emotion = max(emotions, key=emotions.get)
