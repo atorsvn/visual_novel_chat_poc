@@ -407,7 +407,7 @@ async def vn_load_views():
 
 def load_layer_images():
     VN_CONFIG['images']['empty'] = Image.open('ui_elements/blank.png')
-    VN_CONFIG['images']['love'] = Image.open('sprites/normal.png')
+    VN_CONFIG['images']['love'] = Image.open('sprites/smile.png')
     VN_CONFIG['images']['joy'] = Image.open('sprites/delighted.png')
     VN_CONFIG['images']['anger'] = Image.open('sprites/angry.png')
     VN_CONFIG['images']['surprise'] = Image.open('sprites/shocked.png')
