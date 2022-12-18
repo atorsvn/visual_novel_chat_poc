@@ -11,13 +11,15 @@ import json
 import requests
 import re
 import nltk
+from transformers import pipeline
+
+classifier = pipeline("text-classification",model='bhadresh-savani/distilbert-base-uncased-finetuned-emotion', return_all_scores=False)
 
 
 nltk.download('stopwords')
 nltk.download('punkt')
 nltk.download('wordnet')
 
-import text2emotions as emo
 
 f = open('waifu_config.json')
 WAIFU_CONFIG = json.load(f)
@@ -28,6 +30,11 @@ CONST_POSITION = {
     "center" : (108, 0),
     "right" : (300, 0)
 }
+
+def get_emotion(da_text):
+    prediction = classifier(da_text, )
+    
+    return prediction
 
 def waifu_ai_query(query, user_id, user_name):
     global WAIFU_CONFIG
@@ -277,7 +284,7 @@ VN_CONFIG = {
         vn_render_about,
         vn_render_quit,
     ],
-    "waifu-mood" : "Normal",
+    "waifu-mood" : "love",
     "waifu-chat" : "Hello!",
     "waifu-name" : "",
     "waifu-stats" : "",
@@ -290,7 +297,7 @@ VN_CONFIG = {
                 {
                     "label" : "",
                     "style" : discord.ButtonStyle.blurple,
-                    "emoji" : "<:menu_w:925958797145554994>",
+                    "emoji" : "<:wht_menu:1053798469984325723>",
                     "callback" : vn_button_menu_callback
                 }            
             ],
@@ -298,25 +305,25 @@ VN_CONFIG = {
                 {
                     "label" : "",
                     "style" : discord.ButtonStyle.blurple,
-                    "emoji" : "<:menu_w:925958797145554994>",
+                    "emoji" : "<:wht_menu:1053798469984325723>",
                     "callback" : vn_button_menu_callback
                 },
                 {
                     "label" : "",
                     "style" : discord.ButtonStyle.blurple,
-                    "emoji" : "<:up_w:925955838424809552>",
+                    "emoji" : "<:wht_up:1045073082622152735>",
                     "callback" : vn_button_up_callback
                 },
                 {
                     "label" : "",
                     "style" : discord.ButtonStyle.blurple,
-                    "emoji" : "<:down_w:925955926878466099>",
+                    "emoji" : "<:wht_down:1045073143238242335>",
                     "callback" : vn_button_down_callback
                 },
                 {
                     "label" : "",
                     "style" : discord.ButtonStyle.blurple,
-                    "emoji" : "<:ok_w:925959646114631711>", 
+                    "emoji" : "<:wht_ok:1043819251955400725>", 
                     "callback" : vn_button_menu_ok_callback
                 }                
             ],
@@ -324,7 +331,7 @@ VN_CONFIG = {
                 {
                     "label" : "",
                     "style" : discord.ButtonStyle.blurple,
-                    "emoji" : "<:menu_w:925958797145554994>",
+                    "emoji" : "<:wht_menu:1053798469984325723>",
                     "callback" : vn_button_menu_callback
                 },
                 {
@@ -356,7 +363,7 @@ VN_CONFIG = {
                 {
                     "label" : "",
                     "style" : discord.ButtonStyle.blurple,
-                    "emoji" : "<:menu_w:925958797145554994>",
+                    "emoji" : "<:wht_menu:1053798469984325723>",
                     "callback" : vn_button_menu_callback
                 },
                 {
@@ -400,12 +407,12 @@ async def vn_load_views():
 
 def load_layer_images():
     VN_CONFIG['images']['empty'] = Image.open('ui_elements/blank.png')
-    VN_CONFIG['images']['Normal'] = Image.open('sprites/normal.png')
-    VN_CONFIG['images']['Happy'] = Image.open('sprites/delighted.png')
-    VN_CONFIG['images']['Angry'] = Image.open('sprites/angry.png')
-    VN_CONFIG['images']['Surprise'] = Image.open('sprites/shocked.png')
-    VN_CONFIG['images']['Sad'] = Image.open('sprites/sad.png')
-    VN_CONFIG['images']['Fear'] = Image.open('sprites/shocked.png')
+    VN_CONFIG['images']['love'] = Image.open('sprites/normal.png')
+    VN_CONFIG['images']['joy'] = Image.open('sprites/delighted.png')
+    VN_CONFIG['images']['anger'] = Image.open('sprites/angry.png')
+    VN_CONFIG['images']['surprise'] = Image.open('sprites/shocked.png')
+    VN_CONFIG['images']['sadness'] = Image.open('sprites/sad.png')
+    VN_CONFIG['images']['fear'] = Image.open('sprites/shocked.png')
     VN_CONFIG['images']['menu'] = Image.open('ui_elements/overlay_menu.png')
     VN_CONFIG['images']['map'] = Image.open('ui_elements/overlay_map.png')
     VN_CONFIG['images']['about'] = Image.open('ui_elements/overlay_about.png')
@@ -417,7 +424,10 @@ def load_layer_images():
 
 load_layer_images()
 
-bot = commands.Bot(command_prefix = VN_CONFIG['prefix'])
+intents = discord.Intents.default()
+intents.message_content = True
+
+bot = commands.Bot(command_prefix = VN_CONFIG['prefix'], intents=intents)
 
 @bot.command()
 async def vnc_start(ctx):
@@ -429,14 +439,14 @@ async def vnc_start(ctx):
 @bot.command()
 async def gwen(ctx):
     VN_CONFIG['state'] = 0
-    query = re.sub("!gwen" + " ", '', ctx.message.content)
+    query = re.sub("!gwen " + " ", '', ctx.message.content)
     response = waifu_ai_query(query, ctx.message.author.id, ctx.message.author.name)
-    emotions = emo.get_emotion(response)
-    emotion = max(emotions, key=emotions.get)
-    if(emotions[emotion] > 0.0):
-        VN_CONFIG['waifu-mood'] = emotion
+    emotions = get_emotion(response)
+
+    if(emotions[0]["score"] > 0.5):
+        VN_CONFIG['waifu-mood'] = emotions[0]["label"]
     else:
-        VN_CONFIG['waifu-mood'] = "Normal"
+        VN_CONFIG['waifu-mood'] = "love"
 
     await vn_update_waifu_stats()
     waifu_text = waifu_text_wrap(response)
@@ -444,6 +454,5 @@ async def gwen(ctx):
     VN_CONFIG['waifu-chat'] = waifu_text
     await vn_render_waifu_chat()
     await ctx.send(file=discord.File(r'output/screen.jpg'), view=VN_CONFIG['view'][VN_CONFIG['state']])
-
-bot.run(WAIFU_CONFIG['token'])
+bot.run(WAIFU_CONFIG['BOT-TOKEN'])
 
