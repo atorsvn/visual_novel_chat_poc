@@ -76,11 +76,9 @@ def prune_conversation(user_id: str, max_messages: int = 9):
         ORDER BY id ASC
     ''', (user_id,))
     rows = cursor.fetchall()
-    # rows is a list of tuples (id, role). We always keep the first row (system prompt).
+    # Always keep the first row (system prompt) and the last (max_messages - 1) rows.
     if len(rows) > max_messages:
-        # Keep the first row and the last (max_messages - 1) rows.
         ids_to_keep = {rows[0][0]} | {row[0] for row in rows[-(max_messages - 1):]}
-        # Delete any row not in ids_to_keep.
         ids_to_delete = [row[0] for row in rows if row[0] not in ids_to_keep]
         if ids_to_delete:
             cursor.executemany('''
@@ -97,16 +95,17 @@ CONST_POSITION = {
     "right": (300, 0)
 }
 
-# Initialize the Hugging Face emotion classifier.
+# Updated pipeline creation:
+# Use top_k=1 (instead of return_all_scores) and force truncation to 512 tokens.
 classifier = pipeline(
     "text-classification",
     model='bhadresh-savani/distilbert-base-uncased-finetuned-emotion',
-    return_all_scores=False
+    top_k=1
 )
 
 def get_emotion(text: str):
-    """Return the emotion prediction for the given text."""
-    return classifier(text)
+    """Return the emotion prediction for the given text, truncating long inputs."""
+    return classifier(text, truncation=True, max_length=512)
 
 def waifu_text_wrap(text_string: str, width: int = 30) -> str:
     """Wrap the text to the given width and return it as a single string."""
@@ -133,26 +132,20 @@ def waifu_ai_query(query: str, user_id, user_name, waifu_config: dict) -> str:
     call the Ollama API with the full context (system prompt + up to 8 messages),
     then store the assistant's response and return it.
     """
-    # Ensure conversation exists for this user.
     conversation = get_conversation(str(user_id))
     if not conversation:
-        # Insert system prompt (never deleted)
         system_prompt = waifu_config.get("SYSTEM_PROMPT", "You are an anime waifu named Gwen.")
         add_message(str(user_id), "system", system_prompt)
         conversation = get_conversation(str(user_id))
     
-    # Append the user's new query.
     add_message(str(user_id), "user", query)
     prune_conversation(str(user_id))
     conversation = get_conversation(str(user_id))
     
-    # Prepare the messages list for the Ollama API.
     messages = [{"role": msg["role"], "content": msg["content"]} for msg in conversation]
     
-    # Call the Ollama API.
     response: ChatResponse = chat(model='llama3.2', messages=messages)
     
-    # Store the assistant's response.
     add_message(str(user_id), "assistant", response.message.content)
     prune_conversation(str(user_id))
     
@@ -173,16 +166,21 @@ class VisualNovel:
         self.waifu_position = CONST_POSITION['center']
         self.last_interaction = None
         self.images = {}
-        self.views = []  # Will be loaded after the event loop starts.
+        self.views = []  # Loaded after the event loop starts.
+        # New attributes for chat pagination:
+        self.waifu_chat_full = ""
+        self.waifu_chat_pages = []  # List of strings (pages)
+        self.current_chat_page = 0
+
         self.view_configs = [
-            # View 0: initial view with just the menu button
+            # View 0: Chat view (no pagination; used for short replies)
             [
                 {"label": "",
                  "style": discord.ButtonStyle.blurple,
                  "emoji": "<:wht_menu:1053798469984325723>",
                  "callback": self.button_menu_callback}
             ],
-            # View 1: menu navigation view
+            # View 1: Menu navigation view
             [
                 {"label": "",
                  "style": discord.ButtonStyle.blurple,
@@ -201,7 +199,7 @@ class VisualNovel:
                  "emoji": "<:wht_ok:1043819251955400725>",
                  "callback": self.button_menu_ok_callback}
             ],
-            # View 2: map selection view
+            # View 2: Map selection view
             [
                 {"label": "",
                  "style": discord.ButtonStyle.blurple,
@@ -209,22 +207,18 @@ class VisualNovel:
                  "callback": self.button_menu_callback},
                 {"label": "1",
                  "style": discord.ButtonStyle.blurple,
-                 #"emoji": "",
                  "callback": self.button_map_1_callback},
                 {"label": "2",
                  "style": discord.ButtonStyle.blurple,
-                 #"emoji": "",
                  "callback": self.button_map_2_callback},
                 {"label": "3",
                  "style": discord.ButtonStyle.blurple,
-                 #"emoji": "",
                  "callback": self.button_map_3_callback},
                 {"label": "4",
                  "style": discord.ButtonStyle.blurple,
-                 #"emoji": "",
                  "callback": self.button_map_4_callback}
             ],
-            # View 3: about screen view
+            # View 3: About screen view
             [
                 {"label": "",
                  "style": discord.ButtonStyle.blurple,
@@ -232,8 +226,22 @@ class VisualNovel:
                  "callback": self.button_menu_callback},
                 {"label": "So Cool! Sonuvabitch.",
                  "style": discord.ButtonStyle.blurple,
-                 #"emoji": "",
                  "callback": self.button_map_1_callback}
+            ],
+            # View 4: Chat pagination view (for long replies)
+            [
+                {"label": "",
+                 "style": discord.ButtonStyle.blurple,
+                 "emoji": "<:wht_menu:1053798469984325723>",
+                 "callback": self.button_menu_callback},
+                {"label": "",
+                 "style": discord.ButtonStyle.blurple,
+                 "emoji": "<:wht_up:1045073082622152735>",
+                 "callback": self.button_chat_up_callback},
+                {"label": "",
+                 "style": discord.ButtonStyle.blurple,
+                 "emoji": "<:wht_down:1045073143238242335>",
+                 "callback": self.button_chat_down_callback}
             ]
         ]
         self.menu_texts = [
@@ -303,7 +311,7 @@ class VisualNovel:
         await self._update_interaction(interaction)
     
     async def render_chat(self, interaction):
-        """Render the chat screen with unwrapped text."""
+        """Render the chat screen with unwrapped text (non-paginated)."""
         self.last_interaction = interaction
         tb_center = 416
         base, draw, font, W, H = self._prepare_screen("chat")
@@ -316,15 +324,20 @@ class VisualNovel:
         await self._update_interaction(interaction)
     
     async def render_waifu_chat(self):
-        """Render a chat screen with wrapped text (without updating an interaction)."""
+        """Render the chat screen with wrapped text and pagination support."""
         tb_center = 416
         base, draw, font, W, H = self._prepare_screen("chat")
-        wrapped_text = waifu_text_wrap(self.waifu_chat)
+        wrapped_text = self.waifu_chat
         bbox = draw.textbbox((0, 0), wrapped_text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         draw.text(((W - text_width) / 2, tb_center - (text_height / 2)),
                   wrapped_text, (255, 255, 255), font=font)
+        # If multiple pages exist, add a page indicator.
+        if len(self.waifu_chat_pages) > 1:
+            page_indicator = f"Page {self.current_chat_page+1}/{len(self.waifu_chat_pages)}"
+            draw.text((W - 150, tb_center + (text_height / 2) + 10),
+                      page_indicator, (255, 255, 255), font=font)
         base.convert('RGB').save('output/screen.jpg')
     
     async def render_about(self, interaction):
@@ -343,7 +356,7 @@ class VisualNovel:
         await self._update_interaction(interaction)
     
     async def render_quit(self, interaction):
-        """Render the quit screen (simply ends the demo)."""
+        """Render the quit screen (ends the demo)."""
         await interaction.message.delete()
         await interaction.message.channel.send("Thanks for trying out the demo!")
     
@@ -357,9 +370,7 @@ class VisualNovel:
         self.waifu_stats = f"👰 {self.waifu_config['BOT-NAME']} ♥ {self.waifu_mood} 📍 {self.current_location}"
     
     def load_views(self):
-        """Create the discord UI views from the view configuration.
-           This function is called once the event loop is running.
-        """
+        """Create the discord UI views from the view configuration (called once the event loop is running)."""
         self.views = []
         for view_conf in self.view_configs:
             view = View()
@@ -425,10 +436,27 @@ class VisualNovel:
             "Waifu loves her Senpai. They are having a conversation in a park at a path leading to woods"
         )
         await self.render_functions[self.state](interaction)
+    
+    # --- New Pagination Button Callbacks for Chat ---
+    
+    async def button_chat_up_callback(self, interaction):
+        """Show the previous page when the up arrow is pressed."""
+        if self.current_chat_page > 0:
+            self.current_chat_page -= 1
+            self.waifu_chat = self.waifu_chat_pages[self.current_chat_page]
+            await self.render_waifu_chat()
+        await self._update_interaction(interaction)
+    
+    async def button_chat_down_callback(self, interaction):
+        """Show the next page when the down arrow is pressed."""
+        if self.current_chat_page < len(self.waifu_chat_pages) - 1:
+            self.current_chat_page += 1
+            self.waifu_chat = self.waifu_chat_pages[self.current_chat_page]
+            await self.render_waifu_chat()
+        await self._update_interaction(interaction)
 
 # --- Bot Setup and Commands ---
 
-# Initialize the SQLite database.
 init_db()
 
 with open('waifu_config.json') as f:
@@ -441,37 +469,61 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Create our VisualNovel instance and load images.
 vn = VisualNovel(waifu_config)
 vn.load_images()
-# Do not load views here; we'll do that once the event loop is running.
+# Views will be loaded after the event loop starts.
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
     vn.load_views()
 
-@bot.command()
-async def vnc_start(ctx):
-    await vn.update_waifu_stats()
-    await vn.start()
-    await ctx.send(
-        file=discord.File('video/splash.mp4'),
-        view=vn.views[vn.state]
-    )
+#@bot.command()
+#async def vnc_start(ctx):
+#    await vn.update_waifu_stats()
+#    await vn.start()
+#    await ctx.send(
+#        file=discord.File('video/splash.mp4'),
+#        view=vn.views[vn.state]
+#    )
 
 @bot.command()
 async def gwen(ctx):
+    # Set default chat state.
     vn.state = 0
     query = re.sub(r"!gwen\s+", "", ctx.message.content)
+    waifu_location = "```gwen-data\n\n{'current-location': '" + vn.current_location + ", 'curren-user' : " + ctx.message.author.name + "+\n}```"
+
     # Use the Ollama chat API with conversation history from SQLite.
-    response = waifu_ai_query(query, ctx.message.author.id, ctx.message.author.name, waifu_config)
+    response = waifu_ai_query(waifu_location + query, ctx.message.author.id, ctx.message.author.name, waifu_config)
+    
+    # Get emotion result from the classifier.
     emotions = get_emotion(response)
-    if emotions[0]["score"] > 0.5:
-        vn.waifu_mood = emotions[0]["label"]
+    # Depending on the output, the pipeline might return a nested list.
+    emotion_result = emotions[0]
+    if isinstance(emotion_result, list):
+        emotion_result = emotion_result[0]
+    
+    if emotion_result["score"] > 0.5:
+        vn.waifu_mood = emotion_result["label"]
     else:
         vn.waifu_mood = "love"
+    
     await vn.update_waifu_stats()
+    
+    # Wrap and split the response into pages (5 lines per page).
     wrapped_text = waifu_text_wrap(response)
-    # Limit to the first 5 lines.
-    vn.waifu_chat = "\n".join(wrapped_text.splitlines()[:5])
+    lines = wrapped_text.splitlines()
+    page_size = 5
+    pages = ["\n".join(lines[i:i+page_size]) for i in range(0, len(lines), page_size)]
+    
+    vn.waifu_chat_full = wrapped_text
+    vn.waifu_chat_pages = pages
+    vn.current_chat_page = 0
+    vn.waifu_chat = pages[0]
+    # Use the pagination view (state 4) if more than one page.
+    if len(pages) > 1:
+        vn.state = 4
+    else:
+        vn.state = 0
     await vn.render_waifu_chat()
     await ctx.send(
         file=discord.File('output/screen.jpg'),
