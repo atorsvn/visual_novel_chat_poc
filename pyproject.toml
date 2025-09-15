@@ -1,0 +1,23 @@
+[project]
+name = "visual-novel-chat"
+version = "0.1.0"
+description = "Discord visual novel chat bot"
+readme = "README.md"
+authors = [{name = "Visual Novel Team"}]
+requires-python = ">=3.10"
+dependencies = [
+    "discord.py>=2.3.2",
+    "pillow>=9.5.0",
+    "nltk>=3.8",
+    "transformers>=4.34",
+    "ollama>=0.1.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
