@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.sqlite3
+chat_history.db
+.env
+.venv/
+output/screen.jpg
+output/*.png
+output/*.mp4

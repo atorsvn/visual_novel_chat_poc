@@ -1,15 +1,15 @@
-"""Backward compatible entry point for the refactored package."""
+"""Allow running ``python -m visual_novel_chat`` to start the bot."""
 
 from __future__ import annotations
 
 import logging
 
-from visual_novel_chat.bot import main
+from .bot import main
 
 logger = logging.getLogger(__name__)
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    logger.info("Launching visual_novel_chat via legacy entry point")
+    logger.info("Launching visual_novel_chat via module execution")
     main()
